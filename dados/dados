@@ -1,0 +1,7 @@
+Fontes:
+municipios.kml: http://www.gmapas.com/poligonos-ibge/municipios-do-brasil
+IDEB2011.csv: http://portal.inep.gov.br/web/portal-ideb/planilhas-para-download
+agua.csv: http://dados.gov.br/dataset/cgeo_vw_per_domredegeralagua
+esgoto.csv: http://dados.gov.br/dataset/cgeo_vw_per_redegeralefossa
+energia.csv: http://dados.gov.br/dataset/cgeo_vw_per_domenergiadistrimedidor_exclusivo
+lixo.csv: http://dados.gov.br/dataset/cgeo_vw_per_lixocoletadodireto
