@@ -1,0 +1,409 @@
+---
+title: "Desigualdades Sociais x Escolares"
+author: "Renato P. dos Santos"
+date: "30 de agosto de 2016"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r environment, echo = FALSE}
+# Enviroment values
+R.version <- sessionInfo()$R.version$version.string
+OS.version <- sessionInfo()$running
+platform <- sessionInfo()$platform
+```
+
+```{r packages, echo = FALSE}
+library(broom)
+library(maptools)
+library(rgdal)
+library(ggplot2)
+library(readr) # Fast file reading
+library(plyr)
+if (!require(gpclib))
+    install.packages("gpclib", type = "source")
+gpclibPermit()
+library(rgeos)
+library(ggsn)
+library(digest)
+if (!require(colorplaner))
+    devtools::install_github("wmurphyrd/colorplaner")
+```
+
+## Resumo
+
+Palavras-chave
+
+## Introdução
+
+## 
+
+```{r municipios}
+# Polígonos de Estados e Municípios Brasileiros
+municipiosFile <- "dados/municipios.kml"
+layersList <- ogrListLayers(municipiosFile)
+municipios <- readOGR(
+    municipiosFile,
+    layer = layersList[1],
+    stringsAsFactors = FALSE,
+    encoding = "UTF-8", 
+    use_iconv = TRUE
+)
+# Transform to a data frame for ggplot2 graphics facility
+municipiosDF <- tidy(municipios)
+
+## Order matters for geom_path!
+municipiosDF <- municipiosDF[order(municipiosDF$order),]
+```
+
+```{r IDlist}
+# Extract list of ID's and municipalities names
+IDlist <- NULL
+for (i in 1:length(municipios@polygons)) {
+    IDlist <- rbind(IDlist,
+                   data.frame(
+                       id = municipios@polygons[[i]]@ID,
+                       nome = municipios@data$Name[[i]]
+                   ))
+}
+```
+
+```{r Ideb}
+# Estatísticas do Ideb 2011
+IdebFile <- "dados/IDEB2011.csv"
+IdebDF <- as.data.frame(read_csv(
+    IdebFile,
+    col_names = TRUE, 
+    na = c("-"),
+    cols_only(
+        Codigo = col_integer(),
+        Rede = col_character(),
+        Ideb = col_number()
+    )
+))
+
+# Average over municipality
+IdebDF <- aggregate(Ideb ~ Codigo,
+                    data = IdebDF, 
+                    FUN = mean)
+```
+
+```{r geocodigos}
+# Geocódigos do IBGE
+codigosFile <- "dados/municipios-codes.csv"
+# Read only relevant variables
+codigosDF <- read_csv(
+    codigosFile,
+    col_names = TRUE,
+    cols_only(nome = col_character(),
+              geocodigo = col_integer()),
+    locale(encoding = "latin1")
+)
+```
+
+```{r energia}
+# Percentual de domicílios particulares permanentes com energia elétrica de companhia distribuidora e com medidor de uso exclusivo
+energiaFile <- "dados/energia.csv"
+
+# Read only relevant variables
+energiaDF <- as.data.frame(read_csv(
+    energiaFile,
+    col_names = TRUE,
+    cols_only(
+        gid = col_integer(),
+        Censo = col_integer(),
+        PER_DomEnergiaDistriMedidor_Exclusivo = col_number()
+    )
+))
+
+# Filter to 2010 data
+energiaDF <- na.exclude(energiaDF[energiaDF$Censo == 2010,])
+energiaDF$Censo <- NULL
+
+# Rename and format as percentage
+energiaDF$energia <-
+    as.double(energiaDF$PER_DomEnergiaDistriMedidor_Exclusivo / 100) 
+energiaDF$PER_DomEnergiaDistriMedidor_Exclusivo <- NULL
+```
+
+```{r esgoto}
+# Percentual de domicílios particulares permanentes com banheiro de uso exclusivo dos moradores e esgotamento sanitário via rede geral de esgoto
+# Esgoto
+esgotoFile <- "dados/esgoto.csv"
+
+# Read only relevant variables
+esgotoDF <- as.data.frame(read_csv(
+    esgotoFile,
+    col_names = TRUE,
+    cols_only(
+        gid = col_integer(),
+        Censo = col_integer(),
+        Dpp = col_integer(),
+        DomRedeGeralEsgoto = col_integer()
+    )
+))
+
+# Filter to 2010 data
+esgotoDF <- na.exclude(esgotoDF[esgotoDF$Censo == 2010,])
+esgotoDF$Censo <- NULL
+
+# Rename and format as percentage
+esgotoDF$esgoto <-
+    as.double(esgotoDF$DomRedeGeralEsgoto / esgotoDF$Dpp)
+esgotoDF$DomRedeGeralEsgoto <- NULL
+esgotoDF$Dpp <- NULL
+```
+
+```{r agua}
+# Percentual de domicílios particulares permanentes com abastecimento de água da rede geral
+aguaFile <- "dados/agua.csv"
+
+# Read only relevant variables
+aguaDF <- as.data.frame(read_csv(
+    aguaFile,
+    col_names = TRUE,
+    cols_only(
+        gid = col_integer(),
+        Censo = col_integer(),
+        PER_DomRedeGeralAgua = col_number()
+    )
+))
+
+# Filter to 2010 data
+aguaDF <- na.exclude(aguaDF[aguaDF$Censo == 2010,])
+aguaDF$Censo <- NULL
+
+# Rename and format as number
+aguaDF$agua <-
+    as.double(aguaDF$PER_DomRedeGeralAgua / 100)
+aguaDF$PER_DomRedeGeralAgua <- NULL
+```
+
+```{r lixo}
+# Percentual de domicílios particulares permanentes com lixo coletado por serviço de limpeza
+lixoFile <- "dados/lixo.csv"
+
+# Read only relevant variables
+lixoDF <- as.data.frame(read_csv(
+    lixoFile,
+    col_names = TRUE,
+    cols_only(
+        gid = col_integer(),
+        Censo = col_integer(),
+        PER_lixoColetadoDireto = col_number()
+    )
+))
+
+# Filter to 2010 data
+lixoDF <- na.exclude(lixoDF[lixoDF$Censo == 2010,])
+lixoDF$Censo <- NULL
+
+# Rename and format as number
+lixoDF$lixo <-
+    as.double(lixoDF$PER_lixoColetadoDireto / 100) #format as number
+lixoDF$PER_lixoColetadoDireto <- NULL
+```
+
+```{r merging}
+# Include municipalities names
+IdebDF <- merge(IdebDF, 
+                codigosDF, 
+                by.x = 'Codigo', 
+                by.y = 'geocodigo', 
+                incomparables = NA)
+
+# Include ID's
+IdebDF <- merge(IdebDF, 
+                IDlist, 
+                by.x = 'nome', 
+                by.y = 'nome', 
+                incomparables = NA)
+```
+
+```{r mergEnerg}
+IdebEnergDF <- merge(
+        IdebDF,
+        energiaDF,
+        by.x = 'id',
+        by.y = 'gid',
+        incomparables = NA
+)
+```
+
+```{r IdebEnergMap}
+IdebEnergMap <- ggplot()
+IdebEnergMap <- IdebEnergMap + geom_map(
+    data = IdebEnergDF,
+    aes(
+        map_id = id,
+        fill = Ideb,
+        fill2 = energia
+    ),
+    map = municipiosDF,
+    color = 'NA'
+)
+IdebEnergMap <-
+    IdebEnergMap + scale_fill_colorplane(
+        labels_y = scales::percent
+    )    
+IdebEnergMap <- IdebEnergMap + expand_limits(x = municipiosDF$long,
+                                             y = municipiosDF$lat)
+IdebEnergMap <- IdebEnergMap + coord_map()
+IdebEnergMap <- IdebEnergMap + theme_minimal()
+IdebEnergMap <- IdebEnergMap + scalebar(
+    municipiosDF,
+    dist = 500,
+    location = "bottomright",
+    dd2km = TRUE,
+    model = 'WGS84',
+    st.size = 3
+)
+north2(IdebEnergMap,
+       scale = 0.15,
+       x = 0.8,
+       symbol = 3)
+```
+
+```{r mergEsgoto}
+IdebEsgotoDF <- merge(
+        IdebDF,
+        esgotoDF,
+        by.x = 'id',
+        by.y = 'gid',
+        incomparables = NA
+)
+```
+
+```{r IdebEsgotoMap}
+IdebEsgotoMap <- ggplot()
+IdebEsgotoMap <- IdebEsgotoMap + geom_map(
+        data = IdebEsgotoDF,
+        aes(
+                map_id = id,
+                fill = Ideb,
+                fill2 = esgoto
+        ),
+        map = municipiosDF,
+        color = 'NA'
+)
+IdebEsgotoMap <-
+        IdebEsgotoMap + scale_fill_colorplane(labels_y = scales::percent)
+IdebEsgotoMap <-
+        IdebEsgotoMap + expand_limits(x = municipiosDF$long,
+                                      y = municipiosDF$lat)
+IdebEsgotoMap <- IdebEsgotoMap + coord_map()
+IdebEsgotoMap <- IdebEsgotoMap + theme_minimal()
+IdebEsgotoMap <- IdebEsgotoMap + scalebar(
+        municipiosDF,
+        dist = 500,
+        location = "bottomright",
+        dd2km = TRUE,
+        model = 'WGS84',
+        st.size = 3
+)
+north2(IdebEsgotoMap,
+       scale = 0.15,
+       x = 0.8,
+       symbol = 3)
+```
+
+```{r mergAgua}
+IdebAguaDF <- merge(
+        IdebDF,
+        aguaDF,
+        by.x = 'id',
+        by.y = 'gid',
+        incomparables = NA
+)
+```
+
+```{r IdebAguaMap}
+IdebAguaMap <- ggplot()
+IdebAguaMap <- IdebAguaMap + 
+    geom_map(
+        data = IdebAguaDF,
+        aes(
+            map_id = id,
+            fill = Ideb,
+            fill2 = agua
+        ),
+        map = municipiosDF,
+        color = 'NA'
+    )
+IdebAguaMap <-
+    IdebAguaMap +
+    scale_fill_colorplane(labels_y = scales::percent)
+IdebAguaMap <-
+    IdebAguaMap +
+    expand_limits(x = municipiosDF$long,
+                  y = municipiosDF$lat)
+IdebAguaMap <- IdebAguaMap + coord_map()
+IdebAguaMap <- IdebAguaMap + theme_minimal()
+IdebAguaMap <- IdebAguaMap + scalebar(
+    municipiosDF,
+    dist = 500,
+    location = "bottomright",
+    dd2km = TRUE,
+    model = 'WGS84',
+    st.size = 3
+)
+north2(IdebAguaMap,
+       scale = 0.15,
+       x = 0.8,
+       symbol = 3)
+```
+
+```{r mergLixo}
+IdebLixoDF <- merge(
+        IdebDF,
+        lixoDF,
+        by.x = 'id',
+        by.y = 'gid',
+        incomparables = NA
+)
+```
+
+```{r IdebLixoMap}
+IdebLixoMap <- ggplot()
+IdebLixoMap <- IdebLixoMap + geom_map(
+        data = IdebLixoDF,
+        aes(
+            map_id = id,
+            fill = Ideb,
+            fill2 = lixo
+        ),
+        map = municipiosDF,
+        color = 'NA'
+)
+IdebLixoMap <-
+        IdebLixoMap + scale_fill_colorplane(labels_y = scales::percent)
+IdebLixoMap <-
+        IdebLixoMap + expand_limits(x = municipiosDF$long,
+                                      y = municipiosDF$lat)
+IdebLixoMap <- IdebLixoMap + coord_map()
+IdebLixoMap <- IdebLixoMap + theme_minimal()
+IdebLixoMap <- IdebLixoMap + scalebar(
+        municipiosDF,
+        dist = 500,
+        location = "bottomright",
+        dd2km = TRUE,
+        model = 'WGS84',
+        st.size = 3
+)
+north2(IdebLixoMap,
+       scale = 0.15,
+       x = 0.8,
+       symbol = 3)
+```
+
+
+## Referências
+- Polígonos de Estados e Municípios Brasileiros. IBGE. Disponível em: <http://www.gmapas.com/poligonos-ibge/municipios-do-brasil>
+- Percentual de domicílios particulares permanentes com lixo coletado por serviço de limpeza. IBGE. Disponível em: <http://dados.gov.br/dataset/cgeo_vw_per_lixocoletadodireto>
+- Percentual de domicílios particulares permanentes com energia elétrica de companhia distribuidora e com medidor de uso exclusivo. IBGE. Disponível em: <http://dados.gov.br/dataset/cgeo_vw_per_domenergiadistrimedidor_exclusivo>
+- Percentual de domicílios particulares permanentes com banheiro de uso exclusivo dos moradores ou sanitário e esgotamento sanitário via rede geral de esgoto ou pluvial ou fossa séptica. IBGE. Disponível em: <http://dados.gov.br/dataset/cgeo_vw_per_redegeralefossa>
+- Percentual de domicílios particulares permanentes com abastecimento de água da rede geral. IBGE. Disponível em: <http://dados.gov.br/dataset/cgeo_vw_per_domredegeralagua>
+- Estatísticas do Ideb 2013. Ensino Fundamental Regular - Anos Finais. IDEB. Disponível em: <http://portal.inep.gov.br/web/portal-ideb/planilhas-para-download>
